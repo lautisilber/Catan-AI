@@ -1,29 +1,13 @@
-from dataclasses import dataclass
 from typing import ClassVar
 from pycatan import board
 import pycatan
 import torch
 import numpy as np
 
-@dataclass
 class CatanGameState:
     # We're ignoring development cards for now
     # We're only playing 1v1 for now
-    self_player: pycatan.Player
-    other_player: pycatan.Player
-
-    tiles: set[board.Hex]
-    harbors: set[board.Harbor]
-
-    robber: board.Coords
-    vertices: tuple[board.Intersection]
-    edges: tuple[board.Path]
-
-    dice_history: list[int]
-
-    turn: int
-    setup_round: int
-
+    
     N_TILES: ClassVar[int] = 19
     TILE_ENC_SIZE: ClassVar[int] = 6
 
@@ -43,6 +27,42 @@ class CatanGameState:
 
     TURN_ENC_SIZE: ClassVar[int] = 1
     SETUP_ROUND_ENC_SIZE: ClassVar[int] = 1
+    VICTORY_POINTS_ENC_SIZE: ClassVar[int] = 1
+
+    def __init__(self, game: pycatan.Game, self_player: pycatan.Player, dice_history: list[int], turn: int, setup_round: int) -> None:
+        assert len(game.players) == 2
+        self.self_player = self_player
+        self.other_player = [player for player in game.players if player is not self_player][0]
+
+        self.tiles = set(game.board.hexes.values())
+        self.harbors = set(game.board.harbors.values())
+        self.robber = game.board.robber
+
+        self.vertices = tuple(game.board.intersections.values())
+        self.edges = tuple(game.board.paths.values())
+
+        self.dice_history = dice_history
+        self.turn = turn
+        self.setup_round = setup_round
+
+        self.self_victory_points = game.get_victory_points(self.self_player)
+        self.other_victory_points = game.get_victory_points(self.other_player)
+
+
+    @staticmethod
+    def get_observation_space_dim() -> int:
+        return (
+            CatanGameState.N_TILES * CatanGameState.TILE_ENC_SIZE +
+            CatanGameState.N_HARBORS * CatanGameState.HARBOR_ENC_SIZE +
+            CatanGameState.ROBBER_ENC_SIZE +
+            CatanGameState.N_VERTICES * CatanGameState.VERTEX_ENC_SIZE +
+            CatanGameState.N_EDGES * CatanGameState.EDGE_ENC_SIZE +
+            CatanGameState.OWN_RESOURCES_ENC_SIZE +
+            CatanGameState.OTHER_RESOURCES_ENC_SIZE +
+            CatanGameState.TURN_ENC_SIZE +
+            CatanGameState.SETUP_ROUND_ENC_SIZE +
+            CatanGameState.VICTORY_POINTS_ENC_SIZE * 2
+        )
 
     def __post_init__(self) -> None:
         assert len(self.tiles) == CatanGameState.N_TILES
@@ -175,17 +195,7 @@ class CatanGameState:
         '''
 
         # encoded_state = np.zeros(n_tiles * tile_enc_size + n_harbors * harbor_enc_size + robber_enc_size + n_vertices * vertex_enc_size + n_edges * edge_enc_size + dice_history_len + own_res_enc_size + other_res_enc_size + 1)
-        encoded_state = np.zeros(
-            CatanGameState.N_TILES * CatanGameState.TILE_ENC_SIZE +
-            CatanGameState.N_HARBORS * CatanGameState.HARBOR_ENC_SIZE +
-            CatanGameState.ROBBER_ENC_SIZE +
-            CatanGameState.N_VERTICES * CatanGameState.VERTEX_ENC_SIZE +
-            CatanGameState.N_EDGES * CatanGameState.EDGE_ENC_SIZE +
-            CatanGameState.OWN_RESOURCES_ENC_SIZE +
-            CatanGameState.OTHER_RESOURCES_ENC_SIZE +
-            CatanGameState.TURN_ENC_SIZE +
-            CatanGameState.SETUP_ROUND_ENC_SIZE
-        )
+        encoded_state = np.zeros(CatanGameState.get_observation_space_dim())
 
         offset = 0
         # tiles
@@ -222,6 +232,12 @@ class CatanGameState:
         # setup round
         encoded_state[offset:offset + CatanGameState.SETUP_ROUND_ENC_SIZE] = self.setup_round
         offset += CatanGameState.SETUP_ROUND_ENC_SIZE
+        # self victory points
+        encoded_state[offset:offset + CatanGameState.VICTORY_POINTS_ENC_SIZE] = self.self_victory_points
+        offset += CatanGameState.VICTORY_POINTS_ENC_SIZE
+        # other victory points
+        encoded_state[offset:offset + CatanGameState.VICTORY_POINTS_ENC_SIZE] = self.other_victory_points
+        offset += CatanGameState.VICTORY_POINTS_ENC_SIZE
 
         return encoded_state
 
